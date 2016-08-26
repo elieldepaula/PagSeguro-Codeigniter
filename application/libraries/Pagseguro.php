@@ -1,5 +1,7 @@
 <?php
 
+defined('BASEPATH') OR exit('No direct script access allowed');
+
 /**
  * Classe de conexão para retorno e geração de botão de pagamento.
  *
@@ -10,14 +12,19 @@
  * # Como gerar botão:  
  *   $this->pagseguro->set_user(id|array);
  *   $this->pagseguro->set_products(array);
- *   $this->pagseguro->get_button($config);
+ *   $this->pagseguro->get_button($config_botao);
  * 
  */
 class Pagseguro {
 
-    private $ps_email = '';
-    private $timeout = 30; // Timeout em segundo
-    private $ci = NULL;
+    private $pagseguro_email = '';
+    private $pagseguro_token = '';
+    private $pagseguro_sandbox = TRUE;
+    private $pagseguro_url = 'sandbox.pagseguro.uol.com.br';
+    private $pagseguro_imgbotao = 'https://p.simg.uol.com.br/out/pagseguro/i/botoes/pagamentos/164x37-pagar-assina.gif';
+    private $pagseguro_cart = false; // lista dos produtos
+    private $pagseguro_timeout = 30; // Timeout em segundos
+    
     private $this_user = array(
         'id'       => false,
         'nome'     => false,
@@ -34,20 +41,81 @@ class Pagseguro {
         'uf' => '',
         'pais' => 'BRA'
         ); // dados do usuário
-   
-    private $this_cart = false; // lista dos produtos
-    public  $config = array(
-        'reference' => false, // ID de referência da compra no sistema
-        'button' => 'https://p.simg.uol.com.br/out/pagseguro/i/botoes/pagamentos/164x37-pagar-assina.gif' // imagem do botão de compra
-    );
+
+    private  $config_botao = array();
 
     // -------------------------------------------------------------------------
     
-    public function __construct() {        
-        $this->ci = &get_instance();
-        $this->ci->load->config('pagseguro');
-        $this->token = $this->ci->config->item('pagseguro_token');
-        $this->ps_email = $this->ci->config->item('pagseguro_email');
+    public function __construct($psconf = array()) {    
+
+        if (count($psconf) > 0)
+            $this->initialize($psconf);
+
+        if($this->pagseguro_sandbox == TRUE){
+            $this->pagseguro_url = 'sandbox.pagseguro.uol.com.br';
+        } else {
+            $this->pagseguro_url = 'pagseguro.uol.com.br';
+        }
+
+        $this->config_botao = array(
+            'reference' => false, // ID de referência da compra no sistema
+            'button' => $this->pagseguro_imgbotao
+        );
+
+        log_message('debug', "Pagseguro Class Initialized");
+
+    }
+
+    /**
+     * Retorna a instancia do Codeigniter.
+     * 
+     * @author Eliel de Paula <dev@elieldepaula.com.br>
+     * @return mixed
+     */
+    public function __get($var) 
+    {
+        return get_instance()->$var;
+    }
+
+    /**
+     * Seta os atributos da classe.
+     *
+     * @author Eliel de Paula <dev@elieldepaula.com.br>
+     * @return mixed
+     */
+    private function _attributes($attributes) 
+    {
+        if (is_array($attributes)) {
+            $atr = '';
+            foreach ($attributes as $key => $value) {
+                $atr .= $key . "=\"" . $value . "\" ";
+            }
+            return $atr;
+        } elseif (is_string($attributes) and strlen($attributes) > 0)
+            $atr = ' ' . $attributes;
+        
+    }
+
+    /**
+     * Inicializa a biblioteca carregando o arquivo de config_botaouração ou
+     * usando o array passado no metodo construtur da classe. 
+     *
+     * @author Eliel de Paula <dev@elieldepaula.com.br>
+     * @param $psconf array()
+     * @return void
+     */
+    public function initialize($psconf = array()) 
+    {
+        foreach ($psconf as $key => $val) {
+            if (isset($this->$key)) {
+                $method = 'set_' . $key;
+                if (method_exists($this, $method))
+                    $this->$method($val);
+                else
+                    $this->$key = $val;
+            }
+        }
+        return $this;
     }
 
     // -------------------------------------------------------------------------
@@ -61,7 +129,7 @@ class Pagseguro {
      */
     public function notificationPost() {
 //        log_message('debug', 'notificationPost() do PagSeguro.');
-        $postdata = 'Comando=validar&Token='.$this->token;
+        $postdata = 'Comando=validar&Token='.$this->pagseguro_token;
         foreach ($_POST as $key => $value) {
             $valued = $this->clearStr($value);
             $postdata .= "&$key=$valued";
@@ -92,13 +160,13 @@ class Pagseguro {
      */
     private function verify($data) {
         $curl = curl_init();
-        curl_setopt($curl, CURLOPT_URL, "https://pagseguro.uol.com.br/pagseguro-ws/checkout/NPI.jhtml");
+        curl_setopt($curl, CURLOPT_URL, "https://".$this->pagseguro_url."/pagseguro-ws/checkout/NPI.jhtml");
         curl_setopt($curl, CURLOPT_POST, true);
         curl_setopt($curl, CURLOPT_POSTFIELDS, $data);
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($curl, CURLOPT_HEADER, false);
 //        curl_setopt($curl, CURLOPT_HTTPHEADER, Array("Content-Type: application/xml; charset=ISO-8859-1"))
-        curl_setopt($curl, CURLOPT_TIMEOUT, 30);
+        curl_setopt($curl, CURLOPT_pagseguro_timeout, 30);
         curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
         $result = trim(curl_exec($curl));
         curl_close($curl);
@@ -126,8 +194,8 @@ class Pagseguro {
             $code = $_POST['notificationCode'];
         }
         
-        $url = "https://ws.pagseguro.uol.com.br/v2/transactions/notifications/";
-        $url .= $code . "?email=" . $this->ps_email . "&token=" . $this->token;
+        $url = "https://ws.".$this->pagseguro_url."/v2/transactions/notifications/";
+        $url .= $code . "?email=" . $this->pagseguro_email . "&token=" . $this->pagseguro_token;
 
         // faz conexão
         $transaction = $this->curl_connection($url);
@@ -179,42 +247,42 @@ class Pagseguro {
      * @param type $url
      * @param string $method GET com padrão
      * @param array $data
-     * @param type $timeout 30
+     * @param type $pagseguro_timeout 30
      * @param type $charset ISO
      * @return array
      */
-    private function curl_connection($url, $method = 'GET', Array $data = null, $timeout = 30, $charset = 'ISO-8859-1') {
-		
+    private function curl_connection($url, $method = 'GET', Array $data = null, $pagseguro_timeout = 30, $charset = 'ISO-8859-1') {
+        
         if (strtoupper($method) === 'POST') {
             $postFields    = ($data ? http_build_query($data, '', '&') : "");
             $contentLength = "Content-length: ".strlen($postFields);
             $methodOptions = Array(
                     CURLOPT_POST => true,
                     CURLOPT_POSTFIELDS => $postFields,
-                    );			
+                    );          
         } else {
             $contentLength = null;
             $methodOptions = Array(
                     CURLOPT_HTTPGET => true
-                    );				
+                    );              
         }
 
         $options = Array(
             CURLOPT_HTTPHEADER => Array(
                 "Content-Type: application/x-www-form-urlencoded; charset=".$charset,
                 $contentLength
-            ),	
+            ),  
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HEADER => false,
             CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_CONNECTTIMEOUT => $timeout,
-            //CURLOPT_TIMEOUT => $timeout
+            CURLOPT_CONNECTpagseguro_timeout => $pagseguro_timeout,
+            //CURLOPT_pagseguro_timeout => $pagseguro_timeout
         ); 
         $options = ($options + $methodOptions);
 
         $curl = curl_init();
-        curl_setopt_array($curl, $options);			
+        curl_setopt_array($curl, $options);         
         $resp  = curl_exec($curl);
         $info  = curl_getinfo($curl);// para debug
         $error = curl_errno($curl);
@@ -235,24 +303,24 @@ class Pagseguro {
     // MÉTODOS PARA GERAÇÃO DO BOTÃO DE COBRANÇA
     // -------------------------------------------------------------------------
     /**
-     * Estabelece quais configurações foram enviadas.
+     * Estabelece quais config_botaourações foram enviadas.
      * Obrigatórias:
      *  array(
      *      'reference' => int
      * )
-     * @param type $config
+     * @param type $config_botao
      */
-    private function button_config($config){
+    private function button_config_botao($config_botao){
         
         
-        if(! is_array($config)){
-            $config = array($config);
+        if(! is_array($config_botao)){
+            $config_botao = array($config_botao);
         }
         
-        foreach($this->config as $chv => $vlr){
+        foreach($this->config_botao as $chv => $vlr){
             
-            if(isset($config[$chv])){
-                $this->$chv = $config[$chv];
+            if(isset($config_botao[$chv])){
+                $this->$chv = $config_botao[$chv];
             } else {
                 $this->$chv = $vlr;
             }
@@ -262,14 +330,14 @@ class Pagseguro {
 
     // -------------------------------------------------------------------------
     /**
-     * Recebe as configurações e gera botão.
-     * @param type $config
+     * Recebe as config_botaourações e gera botão.
+     * @param type $config_botao
      * @return type
      */
-    public function get_button($config = NULL){ 
+    public function get_button($config_botao = NULL){ 
         
-        // primeira coisa, parsear as configurações
-        $this->button_config($config);
+        // primeira coisa, parsear as config_botaourações
+        $this->button_config_botao($config_botao);
         
         if($this->reference === FALSE && !is_numeric($this->reference)){
             return '<!-- Erro ao gerar botão -->';
@@ -300,7 +368,7 @@ class Pagseguro {
      */
     public function set_user($user_array){
         
-        $this->ci = &get_instance();
+        // $this->ci = &get_instance();
         
         $user_array = $this->user_parser($user_array);        
         
@@ -323,8 +391,6 @@ class Pagseguro {
         return $this->this_user;
     }
 
-
-    // -------------------------------------------------------------------------
     /**
      * Prepara dados do usuário para o PagSeguro
      * @param type $user_array
@@ -367,9 +433,7 @@ class Pagseguro {
         return $return;
         
     }
-
-
-    // -------------------------------------------------------------------------
+    
     /**
      * baseado nas configurações, monta o formulário
      * @param array $user_array
@@ -398,7 +462,6 @@ class Pagseguro {
         
     }
     
-    // -------------------------------------------------------------------------
     /**
      * Recebe o array com um produto, ou array multi com vários
      * Campos:
@@ -419,26 +482,24 @@ class Pagseguro {
         // verifica se é um único produto, ou multi array
         if(isset($product_array[0]) && is_array($product_array[0])){
             // já é multi array... vários produtos
-            $this->this_cart = $product_array;
+            $this->pagseguro_cart = $product_array;
         } else {
             // um único produto
-            $this->this_cart = array($product_array);
+            $this->pagseguro_cart = array($product_array);
         }
         
     }
-    
-    // -------------------------------------------------------------------------
     
     /**
      * baseado nas configurações, monta o formulário
      */
     private function get_products_inputs(){
         
-        if($this->this_cart === FALSE){
+        if($this->pagseguro_cart === FALSE){
             return FALSE;
         }
         
-        $ttl = count($this->this_cart);
+        $ttl = count($this->pagseguro_cart);
         
         $f = array();
         //<!-- Itens do pagamento (ao menos um item é obrigatório) -->        
@@ -446,12 +507,11 @@ class Pagseguro {
         for($x = 0; $x < $ttl; $x++){
             $id = $x+1;
             
-            $itemId          = $this->this_cart[$x]['id'];
-            $itemDescription = $this->this_cart[$x]['descricao'];
-            $itemAmount      = $this->this_cart[$x]['valor'];            
-            $itemQuantity    = $this->this_cart[$x]['quantidade'];
-            $itemWeight      = $this->this_cart[$x]['peso'];
-            
+            $itemId          = $this->pagseguro_cart[$x]['id'];
+            $itemDescription = $this->pagseguro_cart[$x]['descricao'];
+            $itemAmount      = $this->pagseguro_cart[$x]['valor'];            
+            $itemQuantity    = $this->pagseguro_cart[$x]['quantidade'];
+            $itemWeight      = $this->pagseguro_cart[$x]['peso'];
             
             $f[] = '<input type="hidden" name="itemId'.$id.'" value="'.$itemId.'">';
             $f[] = '<input type="hidden" name="itemDescription'.$id.'" value="'.$itemDescription.'">';  
@@ -460,22 +520,19 @@ class Pagseguro {
             $f[] = '<input type="hidden" name="itemWeight'.$id.'" value="'.$itemWeight.'">';
             
         }      
-          
-        
+
         return implode("\n", $f);
     }
-
-
-    // -------------------------------------------------------------------------
+    
     /**
      * Gera a parte inicial do form
      * @return string
      */
     private function get_form_open(){
         $f = array();
-        $f[] = '<form target="pagseguro" method="post" action="https://pagseguro.uol.com.br/v2/checkout/payment.html">';
+        $f[] = '<form target="pagseguro" method="post" action="https://'.$this->pagseguro_url.'/v2/checkout/payment.html">';
         // '<!-- Campos obrigatórios -->';
-        $f[] = '<input type="hidden" name="receiverEmail" value="'.$this->ps_email.'">';
+        $f[] = '<input type="hidden" name="receiverEmail" value="'.$this->pagseguro_email.'">';
         $f[] = '<input type="hidden" name="currency" value="BRL">';
         $f[] = '<input type="hidden" name="encoding" value="UTF-8">';
         //<!-- Código de referência do pagamento no sistema (opcional) -->  
@@ -484,7 +541,6 @@ class Pagseguro {
         return implode("\n", $f);
     }
     
-    // -------------------------------------------------------------------------
     /**
      * Gera a parte final do form
      * @return string
@@ -496,9 +552,4 @@ class Pagseguro {
         $f[] = '</form>';
         return implode("\n", $f);
     }
-    
-    
-
 }
-
-?>
